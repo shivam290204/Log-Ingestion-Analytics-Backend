@@ -2,12 +2,12 @@ FROM python:3.11-slim
 
 WORKDIR /app
 
+# requirements install
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
+# app code copy
 COPY app ./app
-
-ENV MONGO_URI=${MONGO_URI}
 
 EXPOSE 8000
 

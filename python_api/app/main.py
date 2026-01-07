@@ -5,10 +5,11 @@ from motor.motor_asyncio import AsyncIOMotorClient
 
 app = FastAPI(title="Log Analytics API")
 
-MONGO_URI = os.getenv(
-    "MONGO_URI",
-    "mongodb+srv://shivam2004tiwri:shivam2004tiwri@cluster0.hynda.mongodb.net/?appName=Cluster0",
-)
+MONGO_URI = os.getenv("MONGO_URI")
+
+if not MONGO_URI:
+    raise RuntimeError("MONGO_URI environment variable is not set")
+
 client = AsyncIOMotorClient(MONGO_URI)
 db = client["logsdb"]
 collection = db["logs"]

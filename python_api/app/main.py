@@ -1,6 +1,7 @@
 import os
 from typing import Optional, List, Dict, Any
-from fastapi import FastAPI, Query, Header, HTTPException, Depends
+from fastapi import FastAPI, Query, Security, HTTPException, status
+from fastapi.security import APIKeyHeader
 from motor.motor_asyncio import AsyncIOMotorClient
 from datetime import datetime
 from pydantic import BaseModel
@@ -12,11 +13,20 @@ MONGO_URI = os.getenv("MONGO_URI")
 if not MONGO_URI:
     raise RuntimeError("MONGO_URI environment variable is not set")
 
-API_KEY = os.getenv("LOG_API_KEY")
+API_KEY_NAME = "X-API-KEY"
+API_KEY = os.getenv("API_KEY")  # Railway env se aayega
 
-def verify_api_key(x_api_key: str = Header(...)):
-    if not API_KEY or x_api_key != API_KEY:
-        raise HTTPException(status_code=401, detail="Invalid or missing API key")
+api_key_header = APIKeyHeader(
+    name=API_KEY_NAME,
+    auto_error=False
+)
+
+async def verify_api_key(api_key: str = Security(api_key_header)):
+    if api_key != API_KEY:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Invalid or missing API Key"
+        )
 
 client = AsyncIOMotorClient(MONGO_URI)
 db = client["logsdb"]
@@ -35,12 +45,11 @@ def serialize(doc: Dict[str, Any]) -> Dict[str, Any]:
     return doc
 
 
-@app.get("/logs")
+@app.get("/logs", dependencies=[Security(verify_api_key)])
 async def get_logs(
     level: Optional[str] = Query(None),
     service: Optional[str] = Query(None),
-    limit: int = Query(50, ge=1, le=500),
-    _: None = Depends(verify_api_key)
+    limit: int = Query(50, ge=1, le=500)
 ):
     query: Dict[str, Any] = {}
     if level:
@@ -62,11 +71,8 @@ class LogCreate(BaseModel):
     timestamp: datetime | None = None
 
 
-@app.post("/logs")
-async def add_log(
-    log: LogCreate,
-    _: None = Depends(verify_api_key)
-):
+@app.post("/logs", dependencies=[Security(verify_api_key)])
+async def add_log(log: LogCreate):
     doc = log.dict()
     if not doc.get("timestamp"):
         doc["timestamp"] = datetime.utcnow()
@@ -75,8 +81,8 @@ async def add_log(
     return {"status": "inserted", "log": doc}
 
 
-@app.get("/stats/levels")
-async def stats_levels(_: None = Depends(verify_api_key)):
+@app.get("/stats/levels", dependencies=[Security(verify_api_key)])
+async def stats_levels():
     pipeline = [
         {"$group": {"_id": "$level", "count": {"$sum": 1}}},
         {"$sort": {"count": -1}},
@@ -87,8 +93,8 @@ async def stats_levels(_: None = Depends(verify_api_key)):
     return {"items": items}
 
 
-@app.get("/stats/services")
-async def stats_services(_: None = Depends(verify_api_key)):
+@app.get("/stats/services", dependencies=[Security(verify_api_key)])
+async def stats_services():
     pipeline = [
         {"$group": {"_id": "$service", "count": {"$sum": 1}}},
         {"$sort": {"count": -1}},

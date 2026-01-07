@@ -1,12 +1,30 @@
 import os
 from typing import Optional, List, Dict, Any
-from fastapi import FastAPI, Query, Security, HTTPException, status
+from fastapi import FastAPI, Query, Security, HTTPException, status, Request
 from fastapi.security import APIKeyHeader
+from fastapi.responses import JSONResponse
 from motor.motor_asyncio import AsyncIOMotorClient
 from datetime import datetime
 from pydantic import BaseModel
+from slowapi import Limiter
+from slowapi.util import get_remote_address
+from slowapi.errors import RateLimitExceeded
+from slowapi.middleware import SlowAPIMiddleware
+
+limiter = Limiter(
+    key_func=lambda request: request.headers.get("X-API-KEY", "anonymous")
+)
 
 app = FastAPI(title="Log Analytics API")
+app.state.limiter = limiter
+app.add_middleware(SlowAPIMiddleware)
+
+@app.exception_handler(RateLimitExceeded)
+async def rate_limit_handler(request: Request, exc: RateLimitExceeded):
+    return JSONResponse(
+        status_code=429,
+        content={"detail": "Rate limit exceeded. Try again later."}
+    )
 
 MONGO_URI = os.getenv("MONGO_URI")
 
@@ -46,7 +64,9 @@ def serialize(doc: Dict[str, Any]) -> Dict[str, Any]:
 
 
 @app.get("/logs", dependencies=[Security(verify_api_key)])
+@limiter.limit("20/minute")
 async def get_logs(
+    request: Request,
     level: Optional[str] = Query(None),
     service: Optional[str] = Query(None),
     limit: int = Query(50, ge=1, le=500)
@@ -72,7 +92,8 @@ class LogCreate(BaseModel):
 
 
 @app.post("/logs", dependencies=[Security(verify_api_key)])
-async def add_log(log: LogCreate):
+@limiter.limit("10/minute")
+async def add_log(request: Request, log: LogCreate):
     doc = log.dict()
     if not doc.get("timestamp"):
         doc["timestamp"] = datetime.utcnow()

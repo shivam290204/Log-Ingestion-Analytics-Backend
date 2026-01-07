@@ -1,6 +1,6 @@
 import os
 from typing import Optional, List, Dict, Any
-from fastapi import FastAPI, Query
+from fastapi import FastAPI, Query, Header, HTTPException, Depends
 from motor.motor_asyncio import AsyncIOMotorClient
 from datetime import datetime
 from pydantic import BaseModel
@@ -11,6 +11,12 @@ MONGO_URI = os.getenv("MONGO_URI")
 
 if not MONGO_URI:
     raise RuntimeError("MONGO_URI environment variable is not set")
+
+API_KEY = os.getenv("LOG_API_KEY")
+
+def verify_api_key(x_api_key: str = Header(...)):
+    if not API_KEY or x_api_key != API_KEY:
+        raise HTTPException(status_code=401, detail="Invalid or missing API key")
 
 client = AsyncIOMotorClient(MONGO_URI)
 db = client["logsdb"]
@@ -34,6 +40,7 @@ async def get_logs(
     level: Optional[str] = Query(None),
     service: Optional[str] = Query(None),
     limit: int = Query(50, ge=1, le=500),
+    _: None = Depends(verify_api_key)
 ):
     query: Dict[str, Any] = {}
     if level:
@@ -56,7 +63,10 @@ class LogCreate(BaseModel):
 
 
 @app.post("/logs")
-async def add_log(log: LogCreate):
+async def add_log(
+    log: LogCreate,
+    _: None = Depends(verify_api_key)
+):
     doc = log.dict()
     if not doc.get("timestamp"):
         doc["timestamp"] = datetime.utcnow()
@@ -66,7 +76,7 @@ async def add_log(log: LogCreate):
 
 
 @app.get("/stats/levels")
-async def stats_levels():
+async def stats_levels(_: None = Depends(verify_api_key)):
     pipeline = [
         {"$group": {"_id": "$level", "count": {"$sum": 1}}},
         {"$sort": {"count": -1}},
@@ -78,7 +88,7 @@ async def stats_levels():
 
 
 @app.get("/stats/services")
-async def stats_services():
+async def stats_services(_: None = Depends(verify_api_key)):
     pipeline = [
         {"$group": {"_id": "$service", "count": {"$sum": 1}}},
         {"$sort": {"count": -1}},

@@ -1,6 +1,6 @@
 import os
 from typing import Optional, List, Dict, Any
-from fastapi import FastAPI, Query, Security, HTTPException, status, Request
+from fastapi import FastAPI, Query, Security, HTTPException, status, Request, Depends
 from fastapi.security import APIKeyHeader
 from fastapi.responses import JSONResponse
 from motor.motor_asyncio import AsyncIOMotorClient
@@ -42,8 +42,8 @@ api_key_header = APIKeyHeader(
 async def verify_api_key(api_key: str = Security(api_key_header)):
     if api_key != API_KEY:
         raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Invalid or missing API Key"
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid or missing API key"
         )
 
 client = AsyncIOMotorClient(MONGO_URI)
@@ -63,13 +63,14 @@ def serialize(doc: Dict[str, Any]) -> Dict[str, Any]:
     return doc
 
 
-@app.get("/logs", dependencies=[Security(verify_api_key)])
+@app.get("/logs")
 @limiter.limit("20/minute")
 async def get_logs(
     request: Request,
     level: Optional[str] = Query(None),
     service: Optional[str] = Query(None),
-    limit: int = Query(50, ge=1, le=500)
+    limit: int = Query(50, ge=1, le=500),
+    _: str = Depends(verify_api_key)
 ):
     query: Dict[str, Any] = {}
     if level:
@@ -91,9 +92,9 @@ class LogCreate(BaseModel):
     timestamp: datetime | None = None
 
 
-@app.post("/logs", dependencies=[Security(verify_api_key)])
+@app.post("/logs")
 @limiter.limit("10/minute")
-async def add_log(request: Request, log: LogCreate):
+async def add_log(request: Request, log: LogCreate, _: str = Depends(verify_api_key)):
     doc = log.dict()
     if not doc.get("timestamp"):
         doc["timestamp"] = datetime.utcnow()
@@ -102,8 +103,8 @@ async def add_log(request: Request, log: LogCreate):
     return {"status": "inserted", "log": doc}
 
 
-@app.get("/stats/levels", dependencies=[Security(verify_api_key)])
-async def stats_levels():
+@app.get("/stats/levels")
+async def stats_levels(_: str = Depends(verify_api_key)):
     pipeline = [
         {"$group": {"_id": "$level", "count": {"$sum": 1}}},
         {"$sort": {"count": -1}},
@@ -114,8 +115,8 @@ async def stats_levels():
     return {"items": items}
 
 
-@app.get("/stats/services", dependencies=[Security(verify_api_key)])
-async def stats_services():
+@app.get("/stats/services")
+async def stats_services(_: str = Depends(verify_api_key)):
     pipeline = [
         {"$group": {"_id": "$service", "count": {"$sum": 1}}},
         {"$sort": {"count": -1}},

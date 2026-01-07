@@ -1,0 +1,5 @@
+2026-01-07 14:30:45 ERROR user-service Connection timeout
+2026-01-07 14:31:10 INFO auth-service User login succeeded
+2026-01-07 14:32:05 WARN payment-service Payment latency high
+2026-01-07 14:33:22 ERROR auth-service Token validation failed
+2026-01-07 14:34:50 INFO user-service Profile updated

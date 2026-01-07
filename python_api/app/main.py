@@ -2,6 +2,8 @@ import os
 from typing import Optional, List, Dict, Any
 from fastapi import FastAPI, Query
 from motor.motor_asyncio import AsyncIOMotorClient
+from datetime import datetime
+from pydantic import BaseModel
 
 app = FastAPI(title="Log Analytics API")
 
@@ -44,6 +46,23 @@ async def get_logs(
     async for doc in cursor:
         items.append(serialize(doc))
     return {"count": len(items), "items": items}
+
+
+class LogCreate(BaseModel):
+    level: str
+    service: str
+    message: str
+    timestamp: datetime | None = None
+
+
+@app.post("/logs")
+async def add_log(log: LogCreate):
+    doc = log.dict()
+    if not doc.get("timestamp"):
+        doc["timestamp"] = datetime.utcnow()
+
+    await collection.insert_one(doc)
+    return {"status": "inserted", "log": doc}
 
 
 @app.get("/stats/levels")

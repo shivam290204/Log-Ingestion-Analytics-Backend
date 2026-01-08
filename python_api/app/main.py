@@ -139,7 +139,7 @@ async def add_log(
     log: LogCreate,
     _: str = Depends(verify_api_key)
 ):
-    doc = log.dict()
+    doc = log.model_dump()
 
     if not doc.get("timestamp"):
         doc["timestamp"] = datetime.utcnow()

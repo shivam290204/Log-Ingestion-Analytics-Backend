@@ -155,7 +155,7 @@ async def add_log(
 
 
 @app.get("/stats/levels")
-async def stats_levels(_: str = Depends(verify_api_key)):
+async def stats_levels(request: Request, _: str = Depends(verify_api_key)):
     pipeline = [
         {"$group": {"_id": "$level", "count": {"$sum": 1}}},
         {"$sort": {"count": -1}}
@@ -172,7 +172,7 @@ async def stats_levels(_: str = Depends(verify_api_key)):
 
 
 @app.get("/stats/services")
-async def stats_services(_: str = Depends(verify_api_key)):
+async def stats_services(request: Request, _: str = Depends(verify_api_key)):
     pipeline = [
         {"$group": {"_id": "$service", "count": {"$sum": 1}}},
         {"$sort": {"count": -1}}

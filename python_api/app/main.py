@@ -1,24 +1,41 @@
 import os
 from typing import Optional, List, Dict, Any
-from fastapi import FastAPI, Query, Security, HTTPException, status, Request, Depends
+from datetime import datetime
+
+from fastapi import (
+    FastAPI,
+    Query,
+    Security,
+    HTTPException,
+    status,
+    Request,
+    Depends
+)
 from fastapi.security import APIKeyHeader
 from fastapi.responses import JSONResponse
+
 from motor.motor_asyncio import AsyncIOMotorClient
-from datetime import datetime
 from pydantic import BaseModel
+
+# ---------- RATE LIMITING ----------
 from slowapi import Limiter
 from slowapi.util import get_remote_address
 from slowapi.errors import RateLimitExceeded
 from slowapi.middleware import SlowAPIMiddleware
 
+
+# 🔹 Rate limiter (per API key)
 limiter = Limiter(
     key_func=lambda request: request.headers.get("X-API-KEY", "anonymous")
 )
 
 app = FastAPI(title="Log Analytics API")
+
 app.state.limiter = limiter
 app.add_middleware(SlowAPIMiddleware)
 
+
+# 🔹 Custom error message for rate limit
 @app.exception_handler(RateLimitExceeded)
 async def rate_limit_handler(request: Request, exc: RateLimitExceeded):
     return JSONResponse(
@@ -26,18 +43,26 @@ async def rate_limit_handler(request: Request, exc: RateLimitExceeded):
         content={"detail": "Rate limit exceeded. Try again later."}
     )
 
+
+# ---------- ENV VARIABLES ----------
 MONGO_URI = os.getenv("MONGO_URI")
+API_KEY = os.getenv("API_KEY")
 
 if not MONGO_URI:
     raise RuntimeError("MONGO_URI environment variable is not set")
 
+if not API_KEY:
+    raise RuntimeError("API_KEY environment variable is not set")
+
+
+# ---------- API KEY SECURITY ----------
 API_KEY_NAME = "X-API-KEY"
-API_KEY = os.getenv("API_KEY")  # Railway env se aayega
 
 api_key_header = APIKeyHeader(
     name=API_KEY_NAME,
     auto_error=False
 )
+
 
 async def verify_api_key(api_key: str = Security(api_key_header)):
     if api_key != API_KEY:
@@ -46,21 +71,39 @@ async def verify_api_key(api_key: str = Security(api_key_header)):
             detail="Invalid or missing API key"
         )
 
+
+# ---------- DATABASE ----------
 client = AsyncIOMotorClient(MONGO_URI)
 db = client["logsdb"]
 collection = db["logs"]
 
 
 @app.on_event("startup")
-async def ensure_indexes() -> None:
+async def ensure_indexes():
     await collection.create_index("level")
     await collection.create_index("service")
     await collection.create_index("timestamp")
 
 
+# ---------- HELPERS ----------
 def serialize(doc: Dict[str, Any]) -> Dict[str, Any]:
     doc["_id"] = str(doc["_id"])
     return doc
+
+
+# ---------- SCHEMAS ----------
+class LogCreate(BaseModel):
+    level: str
+    service: str
+    message: str
+    timestamp: Optional[datetime] = None
+
+
+# ---------- ROUTES ----------
+
+@app.get("/")
+async def root():
+    return {"status": "ok"}
 
 
 @app.get("/logs")
@@ -73,29 +116,30 @@ async def get_logs(
     _: str = Depends(verify_api_key)
 ):
     query: Dict[str, Any] = {}
+
     if level:
         query["level"] = level
     if service:
         query["service"] = service
 
     cursor = collection.find(query).sort("timestamp", -1).limit(limit)
+
     items: List[Dict[str, Any]] = []
     async for doc in cursor:
         items.append(serialize(doc))
+
     return {"count": len(items), "items": items}
-
-
-class LogCreate(BaseModel):
-    level: str
-    service: str
-    message: str
-    timestamp: datetime | None = None
 
 
 @app.post("/logs")
 @limiter.limit("10/minute")
-async def add_log(request: Request, log: LogCreate, _: str = Depends(verify_api_key)):
+async def add_log(
+    request: Request,
+    log: LogCreate,
+    _: str = Depends(verify_api_key)
+):
     doc = log.dict()
+
     if not doc.get("timestamp"):
         doc["timestamp"] = datetime.utcnow()
 
@@ -107,11 +151,16 @@ async def add_log(request: Request, log: LogCreate, _: str = Depends(verify_api_
 async def stats_levels(_: str = Depends(verify_api_key)):
     pipeline = [
         {"$group": {"_id": "$level", "count": {"$sum": 1}}},
-        {"$sort": {"count": -1}},
+        {"$sort": {"count": -1}}
     ]
+
     items: List[Dict[str, Any]] = []
     async for row in collection.aggregate(pipeline):
-        items.append({"level": row.get("_id"), "count": row.get("count", 0)})
+        items.append({
+            "level": row["_id"],
+            "count": row["count"]
+        })
+
     return {"items": items}
 
 
@@ -119,14 +168,14 @@ async def stats_levels(_: str = Depends(verify_api_key)):
 async def stats_services(_: str = Depends(verify_api_key)):
     pipeline = [
         {"$group": {"_id": "$service", "count": {"$sum": 1}}},
-        {"$sort": {"count": -1}},
+        {"$sort": {"count": -1}}
     ]
+
     items: List[Dict[str, Any]] = []
     async for row in collection.aggregate(pipeline):
-        items.append({"service": row.get("_id"), "count": row.get("count", 0)})
+        items.append({
+            "service": row["_id"],
+            "count": row["count"]
+        })
+
     return {"items": items}
-
-
-@app.get("/")
-async def root():
-    return {"status": "ok"}

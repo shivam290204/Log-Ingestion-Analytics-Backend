@@ -24,13 +24,9 @@ from slowapi.errors import RateLimitExceeded
 from slowapi.middleware import SlowAPIMiddleware
 
 
-# 🔹 Rate limiter (per API key)
-limiter = Limiter(
-    key_func=lambda request: request.headers.get("X-API-KEY", "anonymous")
-)
+limiter = Limiter(key_func=get_remote_address)
 
 app = FastAPI(title="Log Analytics API")
-
 app.state.limiter = limiter
 app.add_middleware(SlowAPIMiddleware)
 

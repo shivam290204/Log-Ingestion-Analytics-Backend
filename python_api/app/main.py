@@ -51,9 +51,6 @@ API_KEY = os.getenv("API_KEY")
 if not MONGO_URI:
     raise RuntimeError("MONGO_URI environment variable is not set")
 
-if not API_KEY:
-    raise RuntimeError("API_KEY environment variable is not set")
-
 
 # ---------- API KEY SECURITY ----------
 API_KEY_NAME = "X-API-KEY"
@@ -64,12 +61,20 @@ api_key_header = APIKeyHeader(
 )
 
 
-async def verify_api_key(api_key: str = Security(api_key_header)):
+async def verify_api_key(api_key: str = Security(api_key_header)) -> str:
+    if not API_KEY:
+        raise HTTPException(
+            status_code=500,
+            detail="API_KEY not configured on server"
+        )
+
     if api_key != API_KEY:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid or missing API key"
         )
+
+    return api_key
 
 
 # ---------- DATABASE ----------

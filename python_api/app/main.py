@@ -57,20 +57,26 @@ api_key_header = APIKeyHeader(
 )
 
 
-async def verify_api_key(api_key: str = Security(api_key_header)) -> str:
+async def verify_api_key(
+    request: Request,
+    api_key: str = Security(api_key_header)
+) -> str:
     if not API_KEY:
         raise HTTPException(
             status_code=500,
             detail="API_KEY not configured on server"
         )
 
-    if api_key != API_KEY:
+    # Try header first, then query parameter (for browser testing)
+    key = api_key or request.query_params.get("api_key")
+    
+    if key != API_KEY:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid or missing API key"
         )
 
-    return api_key
+    return key
 
 
 # ---------- DATABASE ----------
